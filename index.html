@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>🐍 炫彩贪吃蛇 🍎</title>
+  <meta name="description" content="借助 DeepSeek-R1-671B满血版 制作的贪吃蛇网页游戏，挂载到 Cloudflare">
+  <meta name="keywords" content="贪吃蛇,DeepSeek-R1-671B满血版,网页游戏">
+  <link rel="shortcut icon" href="https://img9.doubanio.com/lpic/s29294495.jpg" type="image/png">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      background: linear-gradient(135deg, #83a4d4, #b6fbff);
+      font-family: "Arial", sans-serif;
+      padding: 20px;
+    }
+
+    #container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    #pannel {
+      width: 450px;
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 10px;
+      overflow-y: auto;
+    }
+
+    thead {
+      user-select: none;
+      background: rgba(0, 0, 0, 0.4);
+    }
+
+    #gameArea {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 {
+      color: #fff;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+    }
+
+    .header {
+      width: 100%;
+      padding: 20px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #score {
+      color: #fff;
+      padding: 10px 20px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 10px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      background: #4CAF50;
+      color: white;
+      transition: all 0.3s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    canvas {
+      background-color: rgba(0, 0, 0, 0.1);
+      border-radius: 4px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    th,
+    td {
+      padding: 10px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+    }
+
+    th:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .config-item {
+      margin: 10px 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="container">
+    <div id="pannel">
+      <h3>游戏配置</h3>
+      <div class="config-item">
+        <label><input type="checkbox" id="showGrid" checked>显示网格</label>
+      </div>
+      <h3>历史记录</h3>
+      <table id="historyTable">
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th onclick="sortBy('time')">游戏时间</th>
+            <th onclick="sortBy('duration')">时长</th>
+            <th onclick="sortBy('score')">得分</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+
+    <div id="gameArea">
+      <h1>🐍 炫彩贪吃蛇 🍎 DeepSeek-R1版</h1>
+      <div class="header">
+        <div id="score">得分: 0</div>
+        <div class="controls">
+          <button id="startBtn" onclick="startGame()">开始游戏</button>
+          <button id="pauseBtn" onclick="togglePause()" style="display:none;">暂停游戏</button>
+          <button id="resumeBtn" onclick="resumeGame()" style="display:none;">继续游戏</button>
+          <button id="restartBtn" onclick="restartGame()" style="display:none;">重新开始</button>
+        </div>
+      </div>
+      <canvas id="gameCanvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const scoreElement = document.getElementById("score");
+    let gameLoop;
+    let isPaused = false, isRunning = false;
+    let gameStartTime;
+    let gridSize = 18;
+    let tileCountX, tileCountY;
+
+    let snake = [];
+    let food = { x: 15, y: 15 };
+    let dx = 0, dy = -1;
+    let score = 0;
+    let gameSpeed = 120;
+
+    const config = {
+      showGrid: true,
+      bgColor: "#2c3e50",
+      headColor: "#20ee20",
+      bodyColor: "#2ecc71",
+      foodColor: "#ff4757"
+    };
+
+    let historyData = JSON.parse(localStorage.getItem("snakeHistory")) || [];
+    let sortKey = "score";
+    let sortOrder = "desc";
+
+    function resizeCanvas() {
+      tileCountX = Math.floor((window.innerWidth - 420 - 80) / gridSize);
+      tileCountY = Math.floor((window.innerHeight - 160) / gridSize);
+      canvas.width = tileCountX * gridSize;
+      canvas.height = tileCountY * gridSize;
+    }
+
+    function startGame() {
+      resetGame();
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("pauseBtn").style.display = "inline-block";
+      gameStartTime = Date.now();
+      isPaused = false;
+      isRunning = true;
+      drawGame();
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      if (isPaused) {
+        document.getElementById("pauseBtn").style.display = "none";
+        document.getElementById("resumeBtn").style.display = "inline-block";
+        document.getElementById("restartBtn").style.display = "inline-block";
+      }
+    }
+
+    function resumeGame() {
+      isPaused = false;
+      isRunning = true;
+      document.getElementById("startBtn").style.display = "none";
+      document.getElementById("resumeBtn").style.display = "none";
+      document.getElementById("restartBtn").style.display = "none";
+      document.getElementById("pauseBtn").style.display = "inline-block";
+      drawGame();
+    }
+
+    function restartGame() {
+      resetGame();
+      resumeGame();
+    }
+
+    document.addEventListener("keydown", event => {
+      if (!isRunning || isPaused) return;
+      const keyPressed = event.keyCode;
+      const goingUp = dy === -1;
+      const goingDown = dy === 1;
+      const goingRight = dx === 1;
+      const goingLeft = dx === -1;
+
+      if (keyPressed === 37 && !goingRight) {
+        dx = -1;
+        dy = 0;
+      }
+      if (keyPressed === 38 && !goingDown) {
+        dx = 0;
+        dy = -1;
+      }
+      if (keyPressed === 39 && !goingLeft) {
+        dx = 1;
+        dy = 0;
+      }
+      if (keyPressed === 40 && !goingUp) {
+        dx = 0;
+        dy = 1;
+      }
+    });
+
+    function drawGame() {
+      if (isPaused) return;
+
+      const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+      snake.unshift(head);
+
+      if (head.x === food.x && head.y === food.y) {
+        score += 10;
+        scoreElement.innerHTML = `得分: ${score}`;
+        generateFood();
+        gameSpeed *= 0.95;
+      } else {
+        snake.pop();
+      }
+
+      ctx.fillStyle = config.bgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      if (config.showGrid) {
+        ctx.strokeStyle = "rgba(255,255,255,0.1)";
+        for (let x = 0; x < canvas.width; x += gridSize) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        for (let y = 0; y < canvas.height; y += gridSize) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+        }
+      }
+
+      snake.forEach((seg, i) => {
+        ctx.fillStyle = i === 0 ? config.headColor : config.bodyColor;
+        ctx.fillRect(seg.x * gridSize + 1, seg.y * gridSize + 1, gridSize - 2, gridSize - 2);
+      });
+
+      ctx.fillStyle = config.foodColor;
+      ctx.beginPath();
+      ctx.arc(food.x * gridSize + gridSize / 2, food.y * gridSize + gridSize / 2, gridSize / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (isGameOver()) {
+        const duration = Math.floor((Date.now() - gameStartTime) / 1000);
+        historyData.unshift({ time: Date.now(), duration, score });
+        localStorage.setItem("snakeHistory", JSON.stringify(historyData));
+        updateHistoryTable();
+        alert(`游戏结束！得分: ${score}`);
+        resetGame();
+        return;
+      }
+
+      gameLoop = setTimeout(drawGame, gameSpeed);
+    }
+
+    document.getElementById("showGrid").addEventListener("change", e => {
+      config.showGrid = e.target.checked;
+    });
+
+    function sortBy(key) {
+      sortOrder = (sortKey === key && sortOrder === "desc") ? "asc" : "desc";
+      sortKey = key;
+      updateHistoryTable();
+    }
+
+    function updateHistoryTable() {
+      const sorted = [...historyData].sort((a, b) =>
+        sortOrder === "asc" ? a[sortKey] - b[sortKey] : b[sortKey] - a[sortKey]
+      );
+      document.getElementById("historyBody").innerHTML = sorted.map((entry, i) => `<tr>
+        <td>${i + 1}</td>
+        <td>${new Date(entry.time).toLocaleString()}</td>
+        <td>${entry.duration}s</td>
+        <td>${entry.score}</td>
+      </tr>`).join("");
+    }
+
+    function resetGame() {
+      let cx = Math.floor(tileCountX / 2), cy = Math.floor(tileCountY / 2)
+      snake = [{ x: cx, y: cy }, { x: cx, y: cy + 1 }, { x: cx, y: cy + 2 }];
+      dx = 0;
+      dy = -1;
+      score = 0;
+      gameSpeed = 120;
+      isPaused = false;
+      isRunning = false;
+      generateFood();
+      clearTimeout(gameLoop);
+      document.getElementById("startBtn").style.display = "inline-block";
+      document.getElementById("resumeBtn").style.display = "none";
+      document.getElementById("restartBtn").style.display = "none";
+      document.getElementById("pauseBtn").style.display = "none";
+    }
+
+    function generateFood() {
+      do {
+        food.x = Math.floor(Math.random() * tileCountX);
+        food.y = Math.floor(Math.random() * tileCountY);
+      } while (snake.some(seg => seg.x === food.x && seg.y === food.y));
+    }
+
+    function isGameOver() {
+      const head = snake[0];
+      let over = head.x < 0 || head.x >= tileCountX ||
+        head.y < 0 || head.y >= tileCountY;  // 自碰撞：snake.slice(1).some(seg => seg.x === head.x && seg.y === head.y) 会有快速转向撞自己的bug
+      isRunning = !over;
+      return over;
+    }
+
+    function initGame() {
+      resizeCanvas();
+      resetGame();
+      updateHistoryTable();
+    }
+
+    initGame();
+  </script>
+</body>
+
+</html>
